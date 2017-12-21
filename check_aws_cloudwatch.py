@@ -9,11 +9,16 @@ from datetime import datetime, timedelta
 import boto3
 from operator import itemgetter
 import re
+import signal
 
 E_OK=0
 E_WARN=1
 E_CRIT=2
 E_UNKNOWN=3
+TIMEOUT=5
+
+def handler(signum, frame):
+    raise Exception("op5 timed out when trying to contact AWS")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("region", help="AWS region")
@@ -31,29 +36,38 @@ args = parser.parse_args()
 period_seconds = args.period * 60
 
 # Parse command line argument
-match = re.search(r'(Name=(.*),Value=(.*))', args.dimensions)
-name = match.group(2)
-value = match.group(3)
+match = re.search(r'Name=(.*),Value=(.*)', args.dimensions)
+name = match.group(1)
+value = match.group(2)
 
-# Set profile and create a cloudwatch client in region specified
-boto3.setup_default_session(profile_name=args.profile)
-cloudwatch = boto3.client('cloudwatch', region_name=args.region)
 
-response = cloudwatch.get_metric_statistics(
-    Namespace=args.namespace,
-    Dimensions=[ { "Name": name, "Value": value } ],
-    MetricName=args.metric,
-    StartTime=datetime.utcnow() - timedelta(seconds=period_seconds),
-    EndTime=datetime.utcnow(),
-    Period=period_seconds,
-    Statistics=[
-        'Average'
-    ]
-)
+# Set timeout
+signal.signal(signal.SIGALRM, handler)
+signal.alarm(TIMEOUT)
 
-if not response['Datapoints']:
-    print("UNKNOWN - No value received from Cloudwatch")
+try:
+    # Set profile and create a cloudwatch client in region specified
+    boto3.setup_default_session(profile_name=args.profile)
+    cloudwatch = boto3.client('cloudwatch', region_name=args.region)
+
+    response = cloudwatch.get_metric_statistics(
+        Namespace=args.namespace,
+        Dimensions=[ { "Name": name, "Value": value } ],
+        MetricName=args.metric,
+        StartTime=datetime.utcnow() - timedelta(seconds=period_seconds),
+        EndTime=datetime.utcnow(),
+        Period=period_seconds,
+        Statistics=[
+            'Average'
+        ]
+    )
+    if not response['Datapoints']:
+        print("UNKNOWN - No value received from Cloudwatch")
+        quit(E_UNKNOWN)
+except Exception, exc:
+    print exc
     quit(E_UNKNOWN)
+
 
 # Extract metric value
 datapoints = response['Datapoints']
@@ -65,7 +79,10 @@ message = "Average %s last %d minutes is %f | %s=%f;%d;%d" % (args.metric, args.
 
 # Check against thresholds
 if args.operator == 'lt':
-    if metric_value <= args.warning and metric_value >= args.critical:
+    if metric_value <= args.warning and metric_value <= args.critical:
+        print("CRITICAL - %s") % message
+        quit(E_CRIT)
+    elif metric_value <= args.warning and metric_value >= args.critical:
         print("WARNING - %s") % message
         quit(E_WARN)
     elif metric_value <= args.critical:
@@ -75,7 +92,10 @@ if args.operator == 'lt':
         print("OK - %s") % message
         quit(E_OK)
 elif args.operator == 'gt':
-    if metric_value >= args.warning and metric_value <= args.critical:
+    if metric_value >= args.warning and metric_value >= args.critical:
+        print("CRITICAL - %s") % message
+        quit(E_CRIT)
+    elif metric_value >= args.warning and metric_value <= args.critical:
         print("WARNING - %s") % message
         quit(E_WARN)
     elif metric_value >= args.critical:
