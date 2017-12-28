@@ -1,6 +1,8 @@
 #!/usr/bin/python
 #
 # Author: Tobias Lindqvist 2017-11-27
+#
+# 2017-12-28: Simplified logic. /Tobias Lindqvist
 
 import boto3
 import botocore.session
@@ -79,28 +81,22 @@ message = "Average %s last %d minutes is %f | %s=%f;%d;%d" % (args.metric, args.
 
 # Check against thresholds
 if args.operator == 'lt':
-    if metric_value <= args.warning and metric_value <= args.critical:
+    if metric_value < args.critical:
         print("CRITICAL - %s") % message
         quit(E_CRIT)
-    elif metric_value <= args.warning and metric_value >= args.critical:
+    elif metric_value < args.warning:
         print("WARNING - %s") % message
         quit(E_WARN)
-    elif metric_value <= args.critical:
-        print("CRITICAL - %s") % message
-        quit(E_CRIT)
     else:
         print("OK - %s") % message
         quit(E_OK)
 elif args.operator == 'gt':
-    if metric_value >= args.warning and metric_value >= args.critical:
+    if metric_value > args.critical:
         print("CRITICAL - %s") % message
         quit(E_CRIT)
-    elif metric_value >= args.warning and metric_value <= args.critical:
+    elif metric_value > args.warning:
         print("WARNING - %s") % message
         quit(E_WARN)
-    elif metric_value >= args.critical:
-        print("CRITICAL - %s") % message
-        quit(E_CRIT)
     else:
         print("OK - %s") % message
         quit(E_OK)
