@@ -8,7 +8,6 @@ import boto3
 import botocore.session
 import argparse
 from datetime import datetime, timedelta
-import boto3
 from operator import itemgetter
 import re
 import signal
