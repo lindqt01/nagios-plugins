@@ -16,7 +16,7 @@ E_OK=0
 E_WARN=1
 E_CRIT=2
 E_UNKNOWN=3
-TIMEOUT=5
+TIMEOUT=15
 
 def handler(signum, frame):
     raise Exception("op5 timed out when trying to contact AWS")
