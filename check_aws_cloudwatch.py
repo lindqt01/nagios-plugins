@@ -3,6 +3,10 @@
 # Author: Tobias Lindqvist 2017-11-27
 #
 # 2017-12-28: Simplified logic. /Tobias Lindqvist
+# 2018-03-12: Made dimensions an optional argument
+# 2018-03-12: Changed warn and crit thresholds to float
+# 2018-03-30: Added possibility to have multiple dimensions
+# 2018-03-30: Reduced amount of code.
 
 import boto3
 import botocore.session
@@ -17,6 +21,11 @@ E_WARN=1
 E_CRIT=2
 E_UNKNOWN=3
 TIMEOUT=15
+# Dimensions list to store the parsed dimensions
+dimensions = []
+# Put the Name and Values in a list of dictionaries
+dimensions_query = []
+
 
 def handler(signum, frame):
     raise Exception("op5 timed out when trying to contact AWS")
@@ -26,9 +35,9 @@ parser.add_argument("region", help="AWS region")
 parser.add_argument("profile", help="AWS region profile")
 parser.add_argument("metric", help="AWS metric")
 parser.add_argument("namespace", help="AWS namespace")
-parser.add_argument("dimensions", help="AWS dimensions")
-parser.add_argument("warning", help="Warning threshold", type=int)
-parser.add_argument("critical", help="Critical threshold", type=int)
+parser.add_argument("--dimensions", help="AWS dimensions")
+parser.add_argument("warning", help="Warning threshold", type=float)
+parser.add_argument("critical", help="Critical threshold", type=float)
 parser.add_argument("operator", help="lt (less than) or gt (greater than)")
 parser.add_argument("period", help="minutes back in time", type=int)
 args = parser.parse_args()
@@ -36,15 +45,16 @@ args = parser.parse_args()
 # Convert minutes to seconds
 period_seconds = args.period * 60
 
-# Parse command line argument
-match = re.search(r'Name=(.*),Value=(.*)', args.dimensions)
-name = match.group(1)
-value = match.group(2)
-
-
 # Set timeout
 signal.signal(signal.SIGALRM, handler)
 signal.alarm(TIMEOUT)
+
+if args.dimensions:
+    dimensions = args.dimensions.split()
+    for s in dimensions:
+        # Parse command line argument
+        match = re.search(r'Name=(.*),Value=(.*)', s)
+        dimensions_query.append({ "Name": match.group(1), "Value": match.group(2) })
 
 try:
     # Set profile and create a cloudwatch client in region specified
@@ -53,7 +63,7 @@ try:
 
     response = cloudwatch.get_metric_statistics(
         Namespace=args.namespace,
-        Dimensions=[ { "Name": name, "Value": value } ],
+        Dimensions=dimensions_query,
         MetricName=args.metric,
         StartTime=datetime.utcnow() - timedelta(seconds=period_seconds),
         EndTime=datetime.utcnow(),
@@ -62,13 +72,13 @@ try:
             'Average'
         ]
     )
+
     if not response['Datapoints']:
         print("UNKNOWN - No value received from Cloudwatch")
         quit(E_UNKNOWN)
 except Exception, exc:
     print exc
     quit(E_UNKNOWN)
-
 
 # Extract metric value
 datapoints = response['Datapoints']
